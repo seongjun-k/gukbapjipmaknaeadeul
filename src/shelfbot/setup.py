@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/web', glob('web/*.html')),
+        ('share/' + package_name + '/web/static', glob('web/static/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -23,8 +23,8 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            # 'orchestrator = shelfbot.orchestrator_node:main',
-            # 'docking = shelfbot.aruco_docking:main',
+            'orchestrator = shelfbot.orchestrator_node:main',
+            'calibrate_camera = shelfbot.calibrate_camera:main',
         ],
     },
 )

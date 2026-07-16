@@ -1,0 +1,29 @@
+goal_pose: {x: 0.0, y: 0.0, yaw: 0.0}        # TBD: 부스 세팅 후 실측
+nav: {timeout_sec: 120}
+docking:
+  marker_id: 0
+  aruco_dict: DICT_4X4_50
+  marker_length_m: 0.06
+  calib_file: ""                              # calibrate_camera.py 산출 .npz (K, dist)
+  target_pose: {x: 0.0, y: 0.0, yaw: 0.0}     # TBD: 정위치 실측
+  kp_lin: 0.5
+  kp_ang: 1.0
+  max_lin: 0.05
+  max_ang: 0.3
+  pos_tol_m: 0.015
+  yaw_tol_deg: 3.0
+  aligned_frames: 10
+  lost_frames: 15
+  rate_hz: 15
+  timeout_sec: 30
+placing:
+  cmd: ["bash", "-lc", "cd ~/shelfbot/arm && ./run_policy_wrapper.sh"]
+  timeout_sec: 90
+slots: {sneakers: 1, kitkat: 2, freetime: 3}
+topics:
+  cmd_vel: /cmd_vel
+  map: /map
+  pose: /amcl_pose        # TBD
+  plan: /plan
+  pinky_camera: ""        # TBD
+web: {host: 0.0.0.0, port: 8000}

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>ShelfBot</title>
+<style>
+  body { font-family: sans-serif; margin: 0; background: #111; color: #eee; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1c1c; }
+  header h1 { font-size: 18px; margin: 0; }
+  #badge { padding: 4px 10px; border-radius: 4px; background: #444; }
+  button { padding: 6px 14px; font-size: 14px; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: calc(100vh - 52px); padding: 4px; box-sizing: border-box; }
+  .cell { background: #000; position: relative; overflow: hidden; border: 1px solid #333; }
+  .cell img, .cell canvas { width: 100%; height: 100%; object-fit: contain; }
+  .cell label { position: absolute; top: 2px; left: 4px; font-size: 11px; color: #aaa; background: rgba(0,0,0,.5); padding: 1px 4px; }
+  #log { grid-column: span 2; overflow-y: auto; padding: 6px; font-size: 12px; white-space: pre-wrap; }
+  #log div { border-bottom: 1px solid #222; padding: 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ShelfBot</h1>
+  <span id="badge">READY</span>
+  <button id="btnStart">▶ 시작</button>
+  <button id="btnStop">■ 정지</button>
+  <button id="btnRetry">재시도</button>
+  <button id="btnReset">리셋</button>
+</header>
+<div class="grid">
+  <div class="cell"><label>탑뷰</label><img src="/stream/top"></div>
+  <div class="cell"><label>핸드캠</label><img src="/stream/hand"></div>
+  <div class="cell"><label>SLAM</label><canvas id="mapCanvas"></canvas></div>
+  <div class="cell"><label>핑키</label><img src="/stream/pinky"></div>
+  <div class="cell" id="log"></div>
+</div>
+<script>
+const badge = document.getElementById('badge');
+const logDiv = document.getElementById('log');
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+let mapMeta = null;
+let mapImg = null;
+
+async function callApi(path) {
+  try {
+    const res = await fetch(path, { method: 'POST' });
+    const data = await res.json();
+    addLog(`${path} -> ${res.status} ${data.detail || ''}`);
+  } catch (e) {
+    addLog(`${path} 실패: ${e}`);
+  }
+}
+document.getElementById('btnStart').onclick = () => callApi('/start');
+document.getElementById('btnStop').onclick = () => callApi('/stop');
+document.getElementById('btnRetry').onclick = () => callApi('/retry');
+document.getElementById('btnReset').onclick = () => callApi('/reset');
+
+function addLog(text) {
+  const d = document.createElement('div');
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  logDiv.appendChild(d);
+  logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function worldToPx(x, y) {
+  // 지도 좌표(m) -> 캔버스 픽셀. meta: resolution(m/px), origin: [ox, oy], width/height(px)
+  const px = (x - mapMeta.origin[0]) / mapMeta.resolution;
+  const py = mapMeta.height - (y - mapMeta.origin[1]) / mapMeta.resolution;
+  return [px, py];
+}
+
+function drawMap(pose, plan) {
+  if (!mapMeta) return;
+  canvas.width = mapMeta.width;
+  canvas.height = mapMeta.height;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (mapImg) ctx.drawImage(mapImg, 0, 0);
+
+  if (plan && plan.length > 1) {
+    ctx.strokeStyle = '#0af';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    plan.forEach(([x, y], i) => {
+      const [px, py] = worldToPx(x, y);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  }
+
+  if (pose) {
+    const [px, py] = worldToPx(pose.x, pose.y);
+    const yaw = pose.yaw || 0;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(-yaw);
+    ctx.fillStyle = '#f33';
+    ctx.beginPath();
+    ctx.moveTo(8, 0);
+    ctx.lineTo(-6, 5);
+    ctx.lineTo(-6, -5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+async function loadMap() {
+  const res = await fetch('/map');
+  const data = await res.json();
+  if (!data.png_base64) return;
+  mapMeta = data.meta;
+  mapImg = new Image();
+  mapImg.onload = () => drawMap(null, null);
+  mapImg.src = 'data:image/png;base64,' + data.png_base64;
+}
+loadMap();
+
+const ws = new WebSocket(`ws://${location.host}/ws`);
+let lastPose = null, lastPlan = null;
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === 'state') {
+    badge.textContent = msg.state;
+    addLog(`상태 -> ${msg.state}${msg.reason ? ' (' + msg.reason + ')' : ''}`);
+  } else if (msg.type === 'pose_plan') {
+    lastPose = msg.robot_pose;
+    lastPlan = msg.plan;
+    drawMap(lastPose, lastPlan);
+  }
+};
+</script>
+</body>
+</html>

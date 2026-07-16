@@ -1,0 +1,11 @@
+# frame_hub.py용 카메라 설정. device는 udev 심볼릭 링크로 고정 권장(§7.2 참고).
+top:
+  device: /dev/video0   # TBD: 부스 세팅 후 실측 확정
+  width: 640
+  height: 480
+  fps: 30
+hand:
+  device: /dev/video2   # TBD: 부스 세팅 후 실측 확정
+  width: 640
+  height: 480
+  fps: 30
