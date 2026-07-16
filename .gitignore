@@ -6,3 +6,6 @@ datasets/
 checkpoints/
 *.docx#
 ~$*
+build/
+install/
+log/
