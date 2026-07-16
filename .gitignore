@@ -9,3 +9,5 @@ checkpoints/
 build/
 install/
 log/
+CLAUDE.md
+.claude/
