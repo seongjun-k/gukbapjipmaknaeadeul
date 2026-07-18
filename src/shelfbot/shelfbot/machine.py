@@ -107,5 +107,9 @@ class StateMachine:
             "failed_state": self.failed_state.value if self.failed_state else None,
             "step_times": dict(self.step_times),
         }
-        for cb in self.listeners:
-            cb(payload)
+        for cb in list(self.listeners):
+            try:
+                cb(payload)
+            except Exception:
+                # 리스너(예: 끊긴 웹소켓) 하나가 죽어도 상태 전이는 계속돼야 함
+                pass

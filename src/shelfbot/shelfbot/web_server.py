@@ -138,5 +138,8 @@ def create_app(orch, hub) -> FastAPI:
             pass
         finally:
             pusher_task.cancel()
+            # 접속 종료 시 리스너 제거 — 안 하면 접속마다 누적 + 닫힌 루프로 콜백
+            if on_transition in orch.machine.listeners:
+                orch.machine.listeners.remove(on_transition)
 
     return app

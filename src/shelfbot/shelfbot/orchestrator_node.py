@@ -63,10 +63,18 @@ class Orchestrator(Node):
         self.create_subscription(Path, topics['plan'], self._on_plan, 10)
 
         self.nav_client = NavClient(self)
+        calib_file = os.path.expanduser(self.cfg['docking'].get('calib_file') or '')
+        if calib_file and os.path.isfile(calib_file):
+            calib = np.load(calib_file)
+            camera_matrix, dist_coeffs = calib['K'], calib['dist']
+        else:
+            # 캘리브레이션 전에는 도킹 불가 (solvePnP가 K 필요) — 진입 시 즉시 실패시킴
+            camera_matrix, dist_coeffs = None, None
+            self.get_logger().warning(f'docking.calib_file 없음({calib_file!r}) — 도킹 비활성')
         self.docking = ArucoDocking(
             self.cfg['docking'],
-            camera_matrix=None,
-            dist_coeffs=None,
+            camera_matrix=camera_matrix,
+            dist_coeffs=dist_coeffs,
         )
 
         self.hub = FrameHub(self.cameras_cfg.get('cameras', {}))
