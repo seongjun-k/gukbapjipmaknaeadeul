@@ -21,8 +21,7 @@ _STREAM_FPS = 15
 _PUSH_HZ = 5
 
 _INDEX_CANDIDATES = [
-    # ament share 경로(설치본) 우선, 실패 시 소스 트리 상대 경로 폴백
-    "share/shelfbot/web/static/index.html",
+    # ament share 경로는 _find_index_html이 별도 확인, 여기는 소스 트리 상대 경로 폴백
     os.path.join(os.path.dirname(__file__), "..", "web", "static", "index.html"),
 ]
 

@@ -41,12 +41,6 @@ class FrameHub:
             frame = self._frames.get(name)
             return None if frame is None else frame.copy()
 
-    def put(self, name: str, frame) -> None:
-        # orchestrator가 ROS 이미지 토픽(예: pinky 카메라)을 직접 주입할 때 사용
-        lock = self._locks.setdefault(name, threading.Lock())
-        with lock:
-            self._frames[name] = frame
-
     def _reader_loop(self, name: str, cfg: dict) -> None:
         device = cfg.get("device")
         cap = cv2.VideoCapture(device)

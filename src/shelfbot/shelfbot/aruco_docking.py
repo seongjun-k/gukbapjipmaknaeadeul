@@ -52,6 +52,14 @@ class ArucoDocking:
         wz = max(-self.max_ang, min(self.max_ang, wz))
         return vx, wz
 
+    def _miss(self) -> tuple:
+        # 마커 미검출·solvePnP 실패 공통 처리: 정렬 카운트 리셋, 미검출 카운트 증가
+        self._aligned_count = 0
+        self._lost_count += 1
+        if self._lost_count >= self.lost_frames:
+            return 0.0, 0.0, "lost"
+        return 0.0, 0.0, "searching"
+
     def step(self, frame) -> tuple:
         corners, ids, _ = cv2.aruco.detectMarkers(
             frame, self.dictionary, parameters=self.detector_params
@@ -65,11 +73,7 @@ class ArucoDocking:
                     break
 
         if marker_corners is None:
-            self._aligned_count = 0
-            self._lost_count += 1
-            if self._lost_count >= self.lost_frames:
-                return 0.0, 0.0, "lost"
-            return 0.0, 0.0, "searching"
+            return self._miss()
 
         self._lost_count = 0
 
@@ -77,11 +81,7 @@ class ArucoDocking:
             self._obj_points, marker_corners.reshape(4, 2), self.camera_matrix, self.dist_coeffs
         )
         if not ok:
-            self._aligned_count = 0
-            self._lost_count += 1
-            if self._lost_count >= self.lost_frames:
-                return 0.0, 0.0, "lost"
-            return 0.0, 0.0, "searching"
+            return self._miss()
 
         R, _ = cv2.Rodrigues(rvec)
         # 카메라 좌표계(x=우, y=하, z=전방) -> 로봇 평면(전방 x, 좌측 y)

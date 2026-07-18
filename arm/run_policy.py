@@ -11,6 +11,8 @@ import argparse
 import signal
 import sys
 
+_DEFAULT_FPS = 30
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="ACT 정책으로 soarm101 진열 동작 실행")
@@ -48,7 +50,7 @@ class PolicyRunner:
 
     def policy_fps(self) -> int:
         # TODO: 체크포인트 config에서 실제 fps 읽기 (lerobot policy.config.fps 등)
-        return 30
+        return _DEFAULT_FPS
 
     def read_observation(self):
         # TODO: 캠 2대(top/hand) 프레임 + soarm101 관절 상태를 lerobot observation dict로 조립
@@ -88,7 +90,7 @@ class PolicyRunner:
 
 def main() -> int:
     args = parse_args()
-    max_steps = args.max_steps or PolicyRunner("", "").policy_fps() * 60
+    max_steps = args.max_steps or _DEFAULT_FPS * 60
 
     runner = PolicyRunner(args.checkpoint, args.product)
 

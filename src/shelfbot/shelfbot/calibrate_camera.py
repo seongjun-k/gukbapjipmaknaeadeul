@@ -14,14 +14,25 @@ import cv2
 import numpy as np
 
 
-def _find_corners(gray, pattern_size):
-    return cv2.findChessboardCorners(gray, pattern_size)
-
-
-def calibrate_from_images(image_paths, pattern_size, square_size_m):
+def _make_objp(pattern_size, square_size_m):
     objp = np.zeros((pattern_size[0] * pattern_size[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0 : pattern_size[0], 0 : pattern_size[1]].T.reshape(-1, 2)
     objp *= square_size_m
+    return objp
+
+
+def _run_calibration(objpoints, imgpoints, img_shape, count_desc):
+    if len(objpoints) < 3:
+        raise RuntimeError(f"체스보드 검출 성공 {count_desc}이 부족합니다 ({len(objpoints)}장)")
+
+    ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(
+        objpoints, imgpoints, img_shape, None, None
+    )
+    return K, dist, ret
+
+
+def calibrate_from_images(image_paths, pattern_size, square_size_m):
+    objp = _make_objp(pattern_size, square_size_m)
 
     objpoints = []
     imgpoints = []
@@ -34,20 +45,14 @@ def calibrate_from_images(image_paths, pattern_size, square_size_m):
             continue
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img_shape = gray.shape[::-1]
-        found, corners = _find_corners(gray, pattern_size)
+        found, corners = cv2.findChessboardCorners(gray, pattern_size)
         if not found:
             continue
         corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
         objpoints.append(objp)
         imgpoints.append(corners)
 
-    if len(objpoints) < 3:
-        raise RuntimeError(f"체스보드 검출 성공 이미지가 부족합니다 ({len(objpoints)}장)")
-
-    ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(
-        objpoints, imgpoints, img_shape, None, None
-    )
-    return K, dist, ret
+    return _run_calibration(objpoints, imgpoints, img_shape, "이미지")
 
 
 def calibrate_from_device(device, pattern_size, square_size_m):
@@ -55,9 +60,7 @@ def calibrate_from_device(device, pattern_size, square_size_m):
     if not cap.isOpened():
         raise RuntimeError(f"카메라 장치를 열 수 없습니다: {device}")
 
-    objp = np.zeros((pattern_size[0] * pattern_size[1], 3), np.float32)
-    objp[:, :2] = np.mgrid[0 : pattern_size[0], 0 : pattern_size[1]].T.reshape(-1, 2)
-    objp *= square_size_m
+    objp = _make_objp(pattern_size, square_size_m)
 
     objpoints = []
     imgpoints = []
@@ -72,7 +75,7 @@ def calibrate_from_device(device, pattern_size, square_size_m):
                 break
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             img_shape = gray.shape[::-1]
-            found, corners = _find_corners(gray, pattern_size)
+            found, corners = cv2.findChessboardCorners(gray, pattern_size)
             disp = frame.copy()
             if found:
                 cv2.drawChessboardCorners(disp, pattern_size, corners, found)
@@ -95,13 +98,7 @@ def calibrate_from_device(device, pattern_size, square_size_m):
         cap.release()
         cv2.destroyAllWindows()
 
-    if len(objpoints) < 3:
-        raise RuntimeError(f"체스보드 검출 성공 프레임이 부족합니다 ({len(objpoints)}장)")
-
-    ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(
-        objpoints, imgpoints, img_shape, None, None
-    )
-    return K, dist, ret
+    return _run_calibration(objpoints, imgpoints, img_shape, "프레임")
 
 
 def main():
