@@ -20,10 +20,14 @@ placing:
   cmd: ["bash", "-lc", "cd ~/shelfbot/arm && ./run_policy_wrapper.sh"]
   timeout_sec: 90
 slots: {sneakers: 1, kitkat: 2, freetime: 3}
+obstacle: {fov_deg: 60, dist_m: 0.35}   # NAVIGATING 중 전방 장애물 감지(웹/LCD 표시용)
 topics:
   cmd_vel: /cmd_vel
   map: /map
   pose: /amcl_pose        # TBD
   plan: /plan
   pinky_camera: ""        # TBD
+  initialpose: /initialpose
+  status_text: /shelfbot/status_text
+  scan: /scan
 web: {host: 0.0.0.0, port: 8000}

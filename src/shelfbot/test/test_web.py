@@ -20,7 +20,11 @@ class FakeOrch:
         self.machine = FakeMachine()
         self.latest_pose = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.latest_plan = [[0.0, 0.0], [1.0, 1.0]]
+        self.obstacle = False
         self._running = False
+        self._goal = {"x": 0.0, "y": 0.0, "yaw": 0.0}
+        self._params = {"kp_lin": 0.5, "kp_ang": 1.0}
+        self._docking_busy = False
 
     def request_start(self):
         if self._running:
@@ -40,6 +44,28 @@ class FakeOrch:
 
     def get_map_png(self):
         return b"\x89PNG\r\n", {"resolution": 0.05, "origin": [0, 0], "width": 10, "height": 10}
+
+    def get_goal(self):
+        return self._goal
+
+    def request_set_goal(self, x, y, yaw):
+        self._goal = {"x": x, "y": y, "yaw": yaw}
+        return True, "goal_set"
+
+    def request_set_initialpose(self, x, y, yaw):
+        return True, "initialpose_set"
+
+    def request_get_params(self):
+        return dict(self._params)
+
+    def request_set_params(self, params):
+        if self._docking_busy:
+            return False, "docking_in_progress"
+        invalid = [k for k in params if k not in self._params]
+        if invalid:
+            return False, f"invalid_keys:{','.join(invalid)}"
+        self._params.update(params)
+        return True, "params_updated"
 
 
 class FakeHub:
@@ -108,3 +134,51 @@ def test_index_returns_html():
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
+
+
+def test_goal_get_and_set():
+    client, orch = make_client()
+    r = client.get("/goal")
+    assert r.status_code == 200
+    assert r.json() == {"x": 0.0, "y": 0.0, "yaw": 0.0}
+
+    r2 = client.post("/goal", json={"x": 1.0, "y": 2.0, "yaw": 0.5})
+    assert r2.status_code == 200
+    assert client.get("/goal").json() == {"x": 1.0, "y": 2.0, "yaw": 0.5}
+
+
+def test_goal_invalid_body_400():
+    client, orch = make_client()
+    r = client.post("/goal", json={"x": 1.0})
+    assert r.status_code == 400
+
+
+def test_initialpose_set():
+    client, orch = make_client()
+    r = client.post("/initialpose", json={"x": 0.0, "y": 0.0, "yaw": 0.0})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_params_get_and_set():
+    client, orch = make_client()
+    r = client.get("/params")
+    assert r.status_code == 200
+    assert r.json()["kp_lin"] == 0.5
+
+    r2 = client.post("/params", json={"kp_lin": 0.7})
+    assert r2.status_code == 200
+    assert client.get("/params").json()["kp_lin"] == 0.7
+
+
+def test_params_invalid_key_rejected():
+    client, orch = make_client()
+    r = client.post("/params", json={"unknown_key": 1.0})
+    assert r.status_code == 409
+
+
+def test_params_rejected_while_docking():
+    client, orch = make_client()
+    orch._docking_busy = True
+    r = client.post("/params", json={"kp_lin": 0.9})
+    assert r.status_code == 409

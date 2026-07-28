@@ -5,41 +5,66 @@
 <title>ShelfBot</title>
 <style>
   body { font-family: sans-serif; margin: 0; background: #111; color: #eee; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1c1c; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1c1c; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
   #badge { padding: 4px 10px; border-radius: 4px; background: #444; }
+  #obstacleBadge { display: none; padding: 4px 10px; border-radius: 4px; background: #a00; }
   button { padding: 6px 14px; font-size: 14px; cursor: pointer; }
+  button.active { background: #0a6; color: #fff; }
   .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: calc(100vh - 52px); padding: 4px; box-sizing: border-box; }
   .cell { background: #000; position: relative; overflow: hidden; border: 1px solid #333; }
   .cell img, .cell canvas { width: 100%; height: 100%; object-fit: contain; }
-  .cell label { position: absolute; top: 2px; left: 4px; font-size: 11px; color: #aaa; background: rgba(0,0,0,.5); padding: 1px 4px; }
+  .cell label { position: absolute; top: 2px; left: 4px; font-size: 11px; color: #aaa; background: rgba(0,0,0,.5); padding: 1px 4px; z-index: 1; }
   #log { grid-column: span 2; overflow-y: auto; padding: 6px; font-size: 12px; white-space: pre-wrap; }
   #log div { border-bottom: 1px solid #222; padding: 2px 0; }
+  #banner { display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 4px; font-size: 14px; z-index: 2; cursor: pointer; }
+  #paramsPanel { display: none; position: fixed; top: 60px; right: 10px; background: #1c1c1c; border: 1px solid #444; padding: 10px; z-index: 10; font-size: 12px; }
+  #paramsFields div { margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
+  #paramsFields input { width: 90px; }
 </style>
 </head>
 <body>
 <header>
   <h1>ShelfBot</h1>
   <span id="badge">READY</span>
+  <span id="obstacleBadge">물체감지 대기중</span>
   <button id="btnStart">▶ 시작</button>
   <button id="btnStop">■ 정지</button>
   <button id="btnRetry">재시도</button>
   <button id="btnReset">리셋</button>
+  <button id="btnSetGoal">도착지 설정</button>
+  <button id="btnSetStart">출발지 설정</button>
+  <button id="btnParams">파라미터</button>
 </header>
 <div class="grid">
   <div class="cell"><label>탑뷰</label><img src="/stream/top"></div>
   <div class="cell"><label>핸드캠</label><img src="/stream/hand"></div>
-  <div class="cell"><label>SLAM</label><canvas id="mapCanvas"></canvas></div>
+  <div class="cell">
+    <label>SLAM</label>
+    <canvas id="mapCanvas"></canvas>
+    <div id="banner"></div>
+  </div>
   <div class="cell"><label>핑키</label><img src="/stream/pinky"></div>
   <div class="cell" id="log"></div>
 </div>
+<div id="paramsPanel">
+  <div id="paramsFields"></div>
+  <button id="btnApplyParams">적용</button>
+</div>
 <script>
 const badge = document.getElementById('badge');
+const obstacleBadge = document.getElementById('obstacleBadge');
 const logDiv = document.getElementById('log');
 const canvas = document.getElementById('mapCanvas');
 const ctx = canvas.getContext('2d');
+const bannerEl = document.getElementById('banner');
 let mapMeta = null;
 let mapImg = null;
+let lastPose = null, lastPlan = null;
+let goalMarker = null;   // {x, y} — 서버 goal
+let startMarker = null;  // {x, y} — 마지막으로 클릭 설정한 출발지(표시용)
+let clickMode = null;    // 'goal' | 'start' | null
+let bannerTimer = null;
 
 async function callApi(path) {
   try {
@@ -55,6 +80,54 @@ document.getElementById('btnStop').onclick = () => callApi('/stop');
 document.getElementById('btnRetry').onclick = () => callApi('/retry');
 document.getElementById('btnReset').onclick = () => callApi('/reset');
 
+const btnSetGoal = document.getElementById('btnSetGoal');
+const btnSetStart = document.getElementById('btnSetStart');
+function updateModeButtons() {
+  btnSetGoal.classList.toggle('active', clickMode === 'goal');
+  btnSetStart.classList.toggle('active', clickMode === 'start');
+}
+btnSetGoal.onclick = () => { clickMode = clickMode === 'goal' ? null : 'goal'; updateModeButtons(); };
+btnSetStart.onclick = () => { clickMode = clickMode === 'start' ? null : 'start'; updateModeButtons(); };
+
+const paramsPanel = document.getElementById('paramsPanel');
+const paramsFields = document.getElementById('paramsFields');
+document.getElementById('btnParams').onclick = async () => {
+  if (paramsPanel.style.display === 'block') {
+    paramsPanel.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch('/params');
+    const data = await res.json();
+    paramsFields.innerHTML = '';
+    Object.entries(data).forEach(([k, v]) => {
+      const row = document.createElement('div');
+      row.innerHTML = `<label>${k}</label><input type="number" step="any" data-key="${k}" value="${v}">`;
+      paramsFields.appendChild(row);
+    });
+    paramsPanel.style.display = 'block';
+  } catch (e) {
+    addLog(`/params 조회 실패: ${e}`);
+  }
+};
+document.getElementById('btnApplyParams').onclick = async () => {
+  const body = {};
+  paramsFields.querySelectorAll('input').forEach((inp) => {
+    body[inp.dataset.key] = parseFloat(inp.value);
+  });
+  try {
+    const res = await fetch('/params', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    addLog(`/params -> ${res.status} ${data.detail || ''}`);
+  } catch (e) {
+    addLog(`/params 적용 실패: ${e}`);
+  }
+};
+
 function addLog(text) {
   const d = document.createElement('div');
   d.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
@@ -62,11 +135,26 @@ function addLog(text) {
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 
+function showBanner(text, color) {
+  bannerEl.textContent = text;
+  bannerEl.style.background = color;
+  bannerEl.style.display = 'block';
+  if (bannerTimer) clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { bannerEl.style.display = 'none'; }, 4000);
+}
+bannerEl.onclick = () => { bannerEl.style.display = 'none'; };
+
 function worldToPx(x, y) {
-  // 지도 좌표(m) -> 캔버스 픽셀. meta: resolution(m/px), origin: [ox, oy], width/height(px)
-  const px = (x - mapMeta.origin[0]) / mapMeta.resolution;
-  const py = mapMeta.height - (y - mapMeta.origin[1]) / mapMeta.resolution;
+  // 지도 좌표(m) -> 캔버스 픽셀. meta: resolution(m/px), origin: {x, y}, width/height(px)
+  const px = (x - mapMeta.origin.x) / mapMeta.resolution;
+  const py = mapMeta.height - (y - mapMeta.origin.y) / mapMeta.resolution;
   return [px, py];
+}
+
+function pxToWorld(px, py) {
+  const x = px * mapMeta.resolution + mapMeta.origin.x;
+  const y = (mapMeta.height - py) * mapMeta.resolution + mapMeta.origin.y;
+  return [x, y];
 }
 
 function drawMap(pose, plan) {
@@ -80,8 +168,8 @@ function drawMap(pose, plan) {
     ctx.strokeStyle = '#0af';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    plan.forEach(([x, y], i) => {
-      const [px, py] = worldToPx(x, y);
+    plan.forEach((p, i) => {
+      const [px, py] = worldToPx(p.x, p.y);
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     });
     ctx.stroke();
@@ -89,7 +177,7 @@ function drawMap(pose, plan) {
 
   if (pose) {
     const [px, py] = worldToPx(pose.x, pose.y);
-    const yaw = pose.yaw || 0;
+    const yaw = (pose.qz !== undefined && pose.qw !== undefined) ? 2 * Math.atan2(pose.qz, pose.qw) : 0;
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(-yaw);
@@ -102,7 +190,55 @@ function drawMap(pose, plan) {
     ctx.fill();
     ctx.restore();
   }
+
+  if (goalMarker) {
+    const [gx, gy] = worldToPx(goalMarker.x, goalMarker.y);
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(gx - 6, gy - 6); ctx.lineTo(gx + 6, gy + 6);
+    ctx.moveTo(gx + 6, gy - 6); ctx.lineTo(gx - 6, gy + 6);
+    ctx.stroke();
+  }
+
+  if (startMarker) {
+    const [sx, sy] = worldToPx(startMarker.x, startMarker.y);
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
+
+canvas.addEventListener('click', async (ev) => {
+  if (!clickMode || !mapMeta) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const px = (ev.clientX - rect.left) * scaleX;
+  const py = (ev.clientY - rect.top) * scaleY;
+  const [x, y] = pxToWorld(px, py);
+  const path = clickMode === 'goal' ? '/goal' : '/initialpose';
+  const mode = clickMode;
+  clickMode = null;
+  updateModeButtons();
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x, y, yaw: 0 }),
+    });
+    const data = await res.json();
+    addLog(`${path} -> ${res.status} ${data.detail || ''}`);
+    if (res.ok) {
+      if (mode === 'goal') goalMarker = { x, y }; else startMarker = { x, y };
+      drawMap(lastPose, lastPlan);
+    }
+  } catch (e) {
+    addLog(`${path} 실패: ${e}`);
+  }
+});
 
 async function loadMap() {
   const res = await fetch('/map');
@@ -110,21 +246,40 @@ async function loadMap() {
   if (!data.png_base64) return;
   mapMeta = data.meta;
   mapImg = new Image();
-  mapImg.onload = () => drawMap(null, null);
+  mapImg.onload = () => drawMap(lastPose, lastPlan);
   mapImg.src = 'data:image/png;base64,' + data.png_base64;
 }
 loadMap();
 
+async function loadGoal() {
+  try {
+    const res = await fetch('/goal');
+    const data = await res.json();
+    goalMarker = { x: data.x, y: data.y };
+    drawMap(lastPose, lastPlan);
+  } catch (e) {
+    addLog(`/goal 조회 실패: ${e}`);
+  }
+}
+loadGoal();
+
 const ws = new WebSocket(`ws://${location.host}/ws`);
-let lastPose = null, lastPlan = null;
 ws.onmessage = (ev) => {
   const msg = JSON.parse(ev.data);
   if (msg.type === 'state') {
     badge.textContent = msg.state;
     addLog(`상태 -> ${msg.state}${msg.reason ? ' (' + msg.reason + ')' : ''}`);
+    if (msg.state === 'DOCKING') {
+      showBanner('목적지 도착', '#0a6');
+    } else if (msg.state === 'DONE') {
+      showBanner('작업 완료', '#0a6');
+    } else if (msg.state === 'FAILED') {
+      showBanner(`오류: ${msg.reason || ''}`, '#a00');
+    }
   } else if (msg.type === 'pose_plan') {
     lastPose = msg.robot_pose;
     lastPlan = msg.plan;
+    obstacleBadge.style.display = msg.obstacle ? 'inline-block' : 'none';
     drawMap(lastPose, lastPlan);
   }
 };
