@@ -70,7 +70,9 @@ class Orchestrator(Node):
 
         topics = self.cfg['topics']
         self._cmd_vel_pub = self.create_publisher(Twist, topics['cmd_vel'], 10)
-        self.create_subscription(OccupancyGrid, topics['map'], self._on_map, 1)
+        # map_server는 transient_local 래치 발행 — volatile 구독이면 늦게 뜬 쪽이 지도를 못 받음
+        map_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(OccupancyGrid, topics['map'], self._on_map, map_qos)
         self.create_subscription(PoseWithCovarianceStamped, topics['pose'], self._on_pose, 10)
         self.create_subscription(Path, topics['plan'], self._on_plan, 10)
         self.create_subscription(LaserScan, topics['scan'], self._on_scan, 10)
