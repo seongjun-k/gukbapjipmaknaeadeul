@@ -8,7 +8,6 @@
   header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1c1c; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
   #badge { padding: 4px 10px; border-radius: 4px; background: #444; }
-  #obstacleBadge { display: none; padding: 4px 10px; border-radius: 4px; background: #a00; }
   button { padding: 6px 14px; font-size: 14px; cursor: pointer; }
   button.active { background: #0a6; color: #fff; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: calc(100vh - 52px); padding: 4px; box-sizing: border-box; }
@@ -24,7 +23,6 @@
 <header>
   <h1>국밥집 막내아들</h1>
   <span id="badge">READY</span>
-  <span id="obstacleBadge">물체감지 대기중</span>
   <button id="btnStart">▶ 시작</button>
   <button id="btnStop">■ 정지</button>
   <button id="btnRetry">재시도</button>
@@ -41,17 +39,36 @@
   </div>
   <!-- 핑키 CSI 캠은 핑키의 MJPEG 스트리머(tools/pinky_cam_stream.py) 직결 -->
   <div class="cell"><label>핑키</label><img src="http://192.168.4.1:8081/stream"></div>
-  <div class="cell" id="log"></div>
+  <div class="cell" style="display:flex; flex-direction:column;">
+    <details id="paramsPanel">
+      <summary>Nav2 파라미터</summary>
+      <select id="paramNode">
+        <option value="controller_server">controller_server</option>
+        <option value="planner_server">planner_server</option>
+        <option value="velocity_smoother">velocity_smoother</option>
+        <option value="amcl">amcl</option>
+        <option value="bt_navigator">bt_navigator</option>
+        <option value="behavior_server">behavior_server</option>
+        <option value="local_costmap/local_costmap">local_costmap</option>
+        <option value="global_costmap/global_costmap">global_costmap</option>
+      </select>
+      <button id="btnParamsReload">불러오기</button>
+      <div id="paramsList"></div>
+    </details>
+    <div id="log" style="flex:1; min-height:0;"></div>
+  </div>
 </div>
 <script>
 const badge = document.getElementById('badge');
-const obstacleBadge = document.getElementById('obstacleBadge');
 const logDiv = document.getElementById('log');
 const canvas = document.getElementById('mapCanvas');
 const ctx = canvas.getContext('2d');
 const bannerEl = document.getElementById('banner');
 let mapMeta = null;
 let mapImg = null;
+let costmapMeta = null;
+let costmapImg = null;
+let costmapTick = 0;
 let lastPose = null, lastPlan = null;
 let goalMarker = null;   // {x, y} — 서버 goal
 let startMarker = null;  // {x, y} — 마지막으로 클릭 설정한 출발지(표시용)
@@ -116,6 +133,13 @@ function drawMap(pose, plan) {
   canvas.height = mapMeta.height;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (mapImg) ctx.drawImage(mapImg, 0, 0);
+
+  if (costmapImg && costmapMeta) {
+    // 코스트맵 origin/resolution이 맵과 다를 수 있어 world 좌표로 변환 후 배치
+    const [x0, y0] = worldToPx(costmapMeta.origin.x, costmapMeta.origin.y + costmapMeta.height * costmapMeta.resolution);
+    const [x1, y1] = worldToPx(costmapMeta.origin.x + costmapMeta.width * costmapMeta.resolution, costmapMeta.origin.y);
+    ctx.drawImage(costmapImg, x0, y0, x1 - x0, y1 - y0);
+  }
 
   if (plan && plan.length > 1) {
     ctx.strokeStyle = '#0af';
@@ -204,6 +228,21 @@ async function loadMap() {
 }
 loadMap();
 
+async function loadCostmap() {
+  try {
+    const res = await fetch('/costmap');
+    const data = await res.json();
+    if (!data.png_base64) { costmapImg = null; return; }
+    costmapMeta = data.meta;
+    const img = new Image();
+    img.onload = () => { costmapImg = img; drawMap(lastPose, lastPlan); };
+    img.src = 'data:image/png;base64,' + data.png_base64;
+  } catch (e) {
+    addLog(`/costmap 조회 실패: ${e}`);
+  }
+}
+loadCostmap();
+
 async function loadGoal() {
   try {
     const res = await fetch('/goal');
@@ -215,6 +254,56 @@ async function loadGoal() {
   }
 }
 loadGoal();
+
+const paramNodeSel = document.getElementById('paramNode');
+const paramsListEl = document.getElementById('paramsList');
+
+async function loadParams() {
+  const node = paramNodeSel.value;
+  paramsListEl.textContent = '불러오는 중...';
+  try {
+    const res = await fetch(`/params/${node}`);
+    const params = await res.json();
+    paramsListEl.innerHTML = '';
+    for (const [name, value] of Object.entries(params)) {
+      const row = document.createElement('div');
+      const input = document.createElement('input');
+      input.value = value;
+      input.dataset.name = name;
+      input.dataset.type = typeof value;
+      const btn = document.createElement('button');
+      btn.textContent = '적용';
+      btn.onclick = () => applyParam(node, input);
+      row.append(`${name}: `, input, btn);
+      paramsListEl.appendChild(row);
+    }
+    if (Object.keys(params).length === 0) paramsListEl.textContent = '(파라미터 없음)';
+  } catch (e) {
+    addLog(`/params/${node} 조회 실패: ${e}`);
+  }
+}
+
+async function applyParam(node, input) {
+  const name = input.dataset.name;
+  let value = input.value;
+  if (input.dataset.type === 'number') value = Number(value);
+  else if (input.dataset.type === 'boolean') value = value === 'true';
+  try {
+    const res = await fetch(`/params/${node}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, value }),
+    });
+    const data = await res.json();
+    addLog(`params/${node} ${name}=${value} -> ${res.status} ${data.detail || ''}`);
+  } catch (e) {
+    addLog(`params/${node} ${name} 적용 실패: ${e}`);
+  }
+}
+document.getElementById('btnParamsReload').onclick = loadParams;
+document.getElementById('paramsPanel').addEventListener('toggle', (ev) => {
+  if (ev.target.open) loadParams();
+});
 
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.onmessage = (ev) => {
@@ -232,8 +321,10 @@ ws.onmessage = (ev) => {
   } else if (msg.type === 'pose_plan') {
     lastPose = msg.robot_pose;
     lastPlan = msg.plan;
-    obstacleBadge.style.display = msg.obstacle ? 'inline-block' : 'none';
     drawMap(lastPose, lastPlan);
+    // 코스트맵은 자주 안 바뀌므로 5초(=25 * 1/5Hz)에 한 번만 갱신
+    costmapTick = (costmapTick + 1) % 25;
+    if (costmapTick === 0) loadCostmap();
   }
 };
 </script>

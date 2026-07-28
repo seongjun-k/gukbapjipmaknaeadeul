@@ -20,9 +20,9 @@ class FakeOrch:
         self.machine = FakeMachine()
         self.latest_pose = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.latest_plan = [[0.0, 0.0], [1.0, 1.0]]
-        self.obstacle = False
         self._running = False
         self._goal = {"x": 0.0, "y": 0.0, "yaw": 0.0}
+        self._params = {"controller_server": {"max_vel_x": 0.5}}
 
     def request_start(self):
         if self._running:
@@ -42,6 +42,18 @@ class FakeOrch:
 
     def get_map_png(self):
         return b"\x89PNG\r\n", {"resolution": 0.05, "origin": [0, 0], "width": 10, "height": 10}
+
+    def get_costmap_png(self):
+        return b"\x89PNG\r\n", {"resolution": 0.05, "origin": [0, 0], "width": 10, "height": 10}
+
+    def list_params(self, node_name):
+        return self._params.get(node_name, {})
+
+    def set_param(self, node_name, name, value):
+        if node_name not in self._params:
+            return False, "unknown_node"
+        self._params[node_name][name] = value
+        return True, "ok"
 
     def get_goal(self):
         return self._goal
@@ -144,3 +156,27 @@ def test_initialpose_set():
     r = client.post("/initialpose", json={"x": 0.0, "y": 0.0, "yaw": 0.0})
     assert r.status_code == 200
     assert r.json()["ok"] is True
+
+
+def test_costmap_json_shape():
+    client, orch = make_client()
+    r = client.get("/costmap")
+    assert r.status_code == 200
+    body = r.json()
+    assert "png_base64" in body and "meta" in body
+
+
+def test_params_get_and_set():
+    client, orch = make_client()
+    r = client.get("/params/controller_server")
+    assert r.status_code == 200
+    assert r.json() == {"max_vel_x": 0.5}
+
+    r2 = client.post("/params/controller_server", json={"name": "max_vel_x", "value": 0.8})
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is True
+    assert client.get("/params/controller_server").json()["max_vel_x"] == 0.8
+
+    r3 = client.post("/params/unknown_node", json={"name": "x", "value": 1})
+    assert r3.status_code == 409
+    assert r3.json()["ok"] is False

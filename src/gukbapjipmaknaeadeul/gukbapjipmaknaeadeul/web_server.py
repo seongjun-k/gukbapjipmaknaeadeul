@@ -4,16 +4,17 @@ orch 덕타이핑 계약(INTERFACES.md):
   orch.machine.add_listener(cb), orch.machine.state, orch.machine.step_times
   orch.request_start()/request_stop()/request_retry()/request_reset() -> (ok, detail)
   orch.get_map_png() -> (png_bytes, meta_dict) | (None, None)
-  orch.latest_pose -> dict | None, orch.latest_plan -> list | None, orch.obstacle -> bool
+  orch.get_costmap_png() -> (png_bytes, meta_dict) | (None, None)
+  orch.latest_pose -> dict | None, orch.latest_plan -> list | None
   orch.get_goal() -> {x,y,yaw}, orch.request_set_goal(x,y,yaw) -> (ok, detail)
   orch.request_set_initialpose(x,y,yaw) -> (ok, detail)
+  orch.list_params(node_name) -> {name: value}, orch.set_param(node_name, name, value) -> (ok, detail)
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import os
-import time
 
 import cv2
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -101,6 +102,29 @@ def create_app(orch, hub) -> FastAPI:
             return JSONResponse({"png_base64": None, "meta": None}, status_code=200)
         return JSONResponse({"png_base64": base64.b64encode(png).decode("ascii"), "meta": meta})
 
+    @app.get("/costmap")
+    def get_costmap():
+        png, meta = orch.get_costmap_png()
+        if png is None:
+            return JSONResponse({"png_base64": None, "meta": None}, status_code=200)
+        return JSONResponse({"png_base64": base64.b64encode(png).decode("ascii"), "meta": meta})
+
+    # {node:path}: 코스트맵 노드명(local_costmap/local_costmap)에 슬래시 포함
+    @app.get("/params/{node:path}")
+    def get_params(node: str):
+        return JSONResponse(orch.list_params(node))
+
+    @app.post("/params/{node:path}")
+    async def set_param(node: str, request: Request):
+        body = await request.json()
+        try:
+            name = str(body["name"])
+            value = body["value"]
+        except (KeyError, TypeError):
+            return JSONResponse({"ok": False, "detail": "invalid_body"}, status_code=400)
+        ok, detail = orch.set_param(node, name, value)
+        return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 409)
+
     @app.get("/goal")
     def get_goal():
         return JSONResponse(orch.get_goal())
@@ -152,7 +176,6 @@ def create_app(orch, hub) -> FastAPI:
                     "type": "pose_plan",
                     "robot_pose": getattr(orch, "latest_pose", None),
                     "plan": getattr(orch, "latest_plan", None),
-                    "obstacle": getattr(orch, "obstacle", False),
                 }
                 await queue.put(msg)
 

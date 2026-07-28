@@ -17,8 +17,9 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.node import Node
+from rclpy.parameter import Parameter, parameter_value_to_python
+from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
-from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
 from gukbapjipmaknaeadeul.frame_hub import FrameHub
@@ -46,13 +47,21 @@ def _load_yaml(package_share_relative: str, filename: str) -> dict:
         return yaml.safe_load(f)
 
 
-# 상태 -> 핑키 LCD 표시 텍스트 (NAVIGATING은 obstacle 여부로 별도 분기)
+# 상태 -> 핑키 LCD 표시 텍스트
 _STATUS_TEXT = {
     'READY': '대기',
+    'NAVIGATING': '가는중',
     'PLACING': '도착',
     'DONE': '완료',
     'FAILED': '오류',
 }
+
+# Nav2 파라미터 프록시 대상 노드 (고정 목록)
+_PARAM_NODES = (
+    'controller_server', 'planner_server', 'velocity_smoother',
+    'amcl', 'bt_navigator', 'behavior_server',
+    'local_costmap/local_costmap', 'global_costmap/global_costmap',
+)
 
 
 class Orchestrator(Node):
@@ -75,7 +84,8 @@ class Orchestrator(Node):
         self.create_subscription(OccupancyGrid, topics['map'], self._on_map, map_qos)
         self.create_subscription(PoseWithCovarianceStamped, topics['pose'], self._on_pose, 10)
         self.create_subscription(Path, topics['plan'], self._on_plan, 10)
-        self.create_subscription(LaserScan, topics['scan'], self._on_scan, 10)
+        # Nav2 코스트맵 퍼블리셔도 map_server처럼 TRANSIENT_LOCAL 래치 발행
+        self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self._on_costmap, map_qos)
 
         self._initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, topics['initialpose'], 10)
         # 늦게 뜨는 LCD 노드도 마지막 상태를 받도록 TRANSIENT_LOCAL
@@ -89,14 +99,16 @@ class Orchestrator(Node):
 
         self._map_png: bytes | None = None
         self._map_meta: dict | None = None
+        self._costmap_png: bytes | None = None
+        self._costmap_meta: dict | None = None
         self.latest_pose = None
         self.latest_plan = None
-        self.obstacle = False
         self._goal_override: dict | None = None
 
         self._placing_proc: subprocess.Popen | None = None
         self._placing_timer = None
         self._lock = threading.Lock()
+        self._param_clients: dict[str, AsyncParameterClient] = {}
 
         self._publish_status_text()  # 시작 시 현재(READY) 상태를 즉시 송출
 
@@ -199,29 +211,8 @@ class Orchestrator(Node):
     def _on_plan(self, msg: Path) -> None:
         self.latest_plan = [{'x': p.pose.position.x, 'y': p.pose.position.y} for p in msg.poses]
 
-    def _on_scan(self, msg: LaserScan) -> None:
-        # 전방 ±fov_deg/2 내 유효 최소거리 < dist_m 이면 장애물로 판단 (NAVIGATING에서만 의미)
-        cfg = self.cfg['obstacle']
-        half_fov = math.radians(cfg['fov_deg']) / 2.0
-        min_dist = None
-        angle = msg.angle_min
-        for r in msg.ranges:
-            if -half_fov <= angle <= half_fov and msg.range_min <= r <= msg.range_max:
-                if min_dist is None or r < min_dist:
-                    min_dist = r
-            angle += msg.angle_increment
-        new_obstacle = min_dist is not None and min_dist < cfg['dist_m']
-        if new_obstacle != self.obstacle:
-            self.obstacle = new_obstacle
-            if self.machine.state == State.NAVIGATING:
-                self._publish_status_text()
-
     def _publish_status_text(self) -> None:
-        state = self.machine.state.value
-        if state == State.NAVIGATING.value:
-            text = '물체감지 대기중' if self.obstacle else '가는중'
-        else:
-            text = _STATUS_TEXT.get(state, state)
+        text = _STATUS_TEXT.get(self.machine.state.value, self.machine.state.value)
         msg = String()
         msg.data = text
         self._status_text_pub.publish(msg)
@@ -230,6 +221,90 @@ class Orchestrator(Node):
         if self._map_png is None:
             return None, None
         return self._map_png, self._map_meta
+
+    def _on_costmap(self, msg: OccupancyGrid) -> None:
+        # RViz costmap 팔레트: -1/0=투명, 1~97 파랑->빨강 그라데이션, 98/99=시안(inscribed), 100=마젠타(lethal)
+        w, h = msg.info.width, msg.info.height
+        data = np.array(msg.data, dtype=np.int8).reshape((h, w)).astype(np.int16)
+        img = np.zeros((h, w, 4), dtype=np.uint8)  # cv2는 BGRA 순서
+
+        lethal = data == 100
+        inscribed = (data == 98) | (data == 99)
+        grad = (data >= 1) & ~inscribed & ~lethal
+
+        t = np.clip(data.astype(np.float32) / 97.0, 0.0, 1.0)
+        red = (t * 255).astype(np.uint8)
+        blue = (255 - t * 255).astype(np.uint8)
+        img[..., 0] = np.where(grad, blue, img[..., 0])   # B
+        img[..., 2] = np.where(grad, red, img[..., 2])    # R
+        img[..., 3] = np.where(grad, 180, img[..., 3])    # A
+
+        img[inscribed] = (255, 255, 0, 180)  # 시안 (BGR)
+        img[lethal] = (255, 0, 255, 180)     # 마젠타 (BGR)
+
+        img = np.flipud(img)
+        ok, buf = cv2.imencode('.png', img)
+        if ok:
+            self._costmap_png = buf.tobytes()
+            self._costmap_meta = {
+                'resolution': msg.info.resolution,
+                'origin': {'x': msg.info.origin.position.x, 'y': msg.info.origin.position.y},
+                'width': w,
+                'height': h,
+            }
+
+    def get_costmap_png(self):
+        if self._costmap_png is None:
+            return None, None
+        return self._costmap_png, self._costmap_meta
+
+    # ---------------- Nav2 파라미터 프록시 ----------------
+
+    def _get_param_client(self, node_name: str) -> AsyncParameterClient:
+        client = self._param_clients.get(node_name)
+        if client is None:
+            client = AsyncParameterClient(self, node_name)
+            self._param_clients[node_name] = client
+        return client
+
+    def _wait_future(self, future, timeout: float = 3.0):
+        # spin은 메인 스레드에서 돌고 여기는 웹(uvicorn) 스레드 — 폴링으로 대기
+        deadline = time.monotonic() + timeout
+        while not future.done():
+            if time.monotonic() > deadline:
+                return None
+            time.sleep(0.02)
+        return future.result()
+
+    def list_params(self, node_name: str) -> dict:
+        if node_name not in _PARAM_NODES:
+            return {}
+        client = self._get_param_client(node_name)
+        list_result = self._wait_future(client.list_parameters())
+        if list_result is None:
+            return {}
+        names = list(list_result.result.names)
+        if not names:
+            return {}
+        get_result = self._wait_future(client.get_parameters(names))
+        if get_result is None:
+            return {}
+        out = {}
+        for name, value in zip(names, get_result.values):
+            py = parameter_value_to_python(value)
+            if isinstance(py, (bool, int, float, str)):
+                out[name] = py
+        return out
+
+    def set_param(self, node_name: str, name: str, value):
+        if node_name not in _PARAM_NODES:
+            return False, 'unknown_node'
+        client = self._get_param_client(node_name)
+        result = self._wait_future(client.set_parameters([Parameter(name, value=value)]))
+        if result is None:
+            return False, 'timeout'
+        outcome = result.results[0]
+        return outcome.successful, outcome.reason
 
     # ---------------- 웹 요청 핸들러 ----------------
 
