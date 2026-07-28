@@ -20,11 +20,10 @@ def test_normal_cycle(log_dir):
     m = StateMachine(log_dir=log_dir)
     assert m.start() is True
     assert m.state == State.NAVIGATING
-    m.transition(State.DOCKING)
     m.transition(State.PLACING)
     m.transition(State.DONE)
     assert m.state == State.DONE
-    assert set(m.step_times.keys()) == {'NAVIGATING', 'DOCKING', 'PLACING'}
+    assert set(m.step_times.keys()) == {'NAVIGATING', 'PLACING'}
 
 
 def test_start_rejected_when_not_ready(log_dir):
@@ -37,14 +36,14 @@ def test_start_rejected_when_not_ready(log_dir):
 def test_retry_returns_to_failed_state(log_dir):
     m = StateMachine(log_dir=log_dir)
     m.start()
-    m.transition(State.DOCKING)
-    m.fail(State.DOCKING, 'marker_lost')
+    m.transition(State.PLACING)
+    m.fail(State.PLACING, 'place_failed')
     assert m.state == State.FAILED
-    assert m.fail_reason == 'marker_lost'
+    assert m.fail_reason == 'place_failed'
 
     target = m.retry()
-    assert target == State.DOCKING
-    assert m.state == State.DOCKING
+    assert target == State.PLACING
+    assert m.state == State.PLACING
     assert m.fail_reason is None
     assert m.failed_state is None
 
@@ -58,7 +57,6 @@ def test_retry_noop_when_not_failed(log_dir):
 def test_reset_from_done_and_failed(log_dir):
     m = StateMachine(log_dir=log_dir)
     m.start()
-    m.transition(State.DOCKING)
     m.transition(State.PLACING)
     m.transition(State.DONE)
     assert m.reset() is True
@@ -81,14 +79,14 @@ def test_reset_rejected_from_mid_cycle(log_dir):
 def test_jsonl_written(log_dir):
     m = StateMachine(log_dir=log_dir)
     m.start()
-    m.transition(State.DOCKING)
+    m.transition(State.PLACING)
 
     files = os.listdir(log_dir)
     assert len(files) == 1
     with open(os.path.join(log_dir, files[0])) as f:
         lines = [json.loads(line) for line in f]
     assert lines[0]['state'] == 'NAVIGATING'
-    assert lines[1]['state'] == 'DOCKING'
+    assert lines[1]['state'] == 'PLACING'
     assert 'ts' in lines[0]
 
 
@@ -97,14 +95,14 @@ def test_listener_called_on_transition(log_dir):
     events = []
     m.add_listener(lambda payload: events.append(payload))
     m.start()
-    m.transition(State.DOCKING)
+    m.transition(State.PLACING)
     assert len(events) == 2
-    assert events[-1]['state'] == 'DOCKING'
+    assert events[-1]['state'] == 'PLACING'
 
 
 def test_step_times_recorded(log_dir):
     m = StateMachine(log_dir=log_dir)
     m.start()
-    m.transition(State.DOCKING)
+    m.transition(State.PLACING)
     assert 'NAVIGATING' in m.step_times
     assert m.step_times['NAVIGATING'] >= 0

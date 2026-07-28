@@ -7,7 +7,6 @@ orch 덕타이핑 계약(INTERFACES.md):
   orch.latest_pose -> dict | None, orch.latest_plan -> list | None, orch.obstacle -> bool
   orch.get_goal() -> {x,y,yaw}, orch.request_set_goal(x,y,yaw) -> (ok, detail)
   orch.request_set_initialpose(x,y,yaw) -> (ok, detail)
-  orch.request_get_params() -> dict, orch.request_set_params(dict) -> (ok, detail)
 """
 from __future__ import annotations
 
@@ -124,16 +123,6 @@ def create_app(orch, hub) -> FastAPI:
         except (KeyError, TypeError, ValueError):
             return JSONResponse({"ok": False, "detail": "invalid_body"}, status_code=400)
         ok, detail = orch.request_set_initialpose(x, y, yaw)
-        return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 409)
-
-    @app.get("/params")
-    def get_params():
-        return JSONResponse(orch.request_get_params())
-
-    @app.post("/params")
-    async def set_params(request: Request):
-        body = await request.json()
-        ok, detail = orch.request_set_params(body)
         return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 409)
 
     @app.get("/", response_class=HTMLResponse)

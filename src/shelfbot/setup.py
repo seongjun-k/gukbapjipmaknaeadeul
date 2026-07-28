@@ -24,7 +24,6 @@ setup(
     entry_points={
         'console_scripts': [
             'orchestrator = shelfbot.orchestrator_node:main',
-            'calibrate_camera = shelfbot.calibrate_camera:main',
         ],
     },
 )

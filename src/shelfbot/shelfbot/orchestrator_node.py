@@ -21,7 +21,6 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
-from shelfbot.aruco_docking import ArucoDocking
 from shelfbot.frame_hub import FrameHub
 from shelfbot.machine import State, StateMachine
 from shelfbot.nav_client import NavClient
@@ -47,16 +46,9 @@ def _load_yaml(package_share_relative: str, filename: str) -> dict:
         return yaml.safe_load(f)
 
 
-# 런타임 튜닝 허용 파라미터 (ArucoDocking cfg 키 부분집합) — booth.yaml docking 키 이름과 결합(SSoT)
-_DOCKING_PARAM_KEYS = (
-    'kp_lin', 'kp_ang', 'max_lin', 'max_ang', 'pos_tol_m',
-    'yaw_tol_deg', 'aligned_frames', 'lost_frames', 'timeout_sec',
-)
-
 # 상태 -> 핑키 LCD 표시 텍스트 (NAVIGATING은 obstacle 여부로 별도 분기)
 _STATUS_TEXT = {
     'READY': '대기',
-    'DOCKING': '도착',
     'PLACING': '도착',
     'DONE': '완료',
     'FAILED': '오류',
@@ -89,19 +81,6 @@ class Orchestrator(Node):
         self._status_text_pub = self.create_publisher(String, topics['status_text'], status_qos)
 
         self.nav_client = NavClient(self)
-        calib_file = os.path.expanduser(self.cfg['docking'].get('calib_file') or '')
-        if calib_file and os.path.isfile(calib_file):
-            calib = np.load(calib_file)
-            camera_matrix, dist_coeffs = calib['K'], calib['dist']
-        else:
-            # 캘리브레이션 전에는 도킹 불가 (solvePnP가 K 필요) — 진입 시 즉시 실패시킴
-            camera_matrix, dist_coeffs = None, None
-            self.get_logger().warning(f'docking.calib_file 없음({calib_file!r}) — 도킹 비활성')
-        self.docking = ArucoDocking(
-            self.cfg['docking'],
-            camera_matrix=camera_matrix,
-            dist_coeffs=dist_coeffs,
-        )
 
         self.hub = FrameHub(self.cameras_cfg.get('cameras', {}))
         self.hub.start()
@@ -113,7 +92,6 @@ class Orchestrator(Node):
         self.obstacle = False
         self._goal_override: dict | None = None
 
-        self._dock_timer = None
         self._placing_proc: subprocess.Popen | None = None
         self._placing_timer = None
         self._lock = threading.Lock()
@@ -127,8 +105,6 @@ class Orchestrator(Node):
         self._publish_status_text()
         if state == State.NAVIGATING.value:
             self._start_navigating()
-        elif state == State.DOCKING.value:
-            self._start_docking()
         elif state == State.PLACING.value:
             self._start_placing()
 
@@ -141,68 +117,27 @@ class Orchestrator(Node):
 
     def _on_nav_result(self, ok: bool, reason: str) -> None:
         if ok:
-            self.machine.transition(State.DOCKING)
+            # nav goal 도착 지점에서 바로 정지 후 PLACING 진입 (아루코 도킹 미사용)
+            self._stop_cmd_vel()
+            self.machine.transition(State.PLACING)
         else:
             self.machine.fail(State.NAVIGATING, reason or 'nav_failed')
 
-    # ---------------- DOCKING ----------------
-
-    def _start_docking(self) -> None:
-        self.docking.reset()
-        cfg = self.cfg['docking']
-        rate_hz = cfg['rate_hz']
-        self._dock_deadline = time.monotonic() + cfg['timeout_sec']
-        self._dock_timer = self.create_timer(1.0 / rate_hz, self._docking_step)
-
-    def _docking_step(self) -> None:
-        try:
-            frame = self.hub.get('top')
-            if frame is None:
-                return
-            if time.monotonic() > self._dock_deadline:
-                self._stop_docking()
-                self.machine.fail(State.DOCKING, 'dock_timeout')
-                return
-
-            vx, wz, status = self.docking.step(frame)
-            self._publish_cmd_vel(vx, wz)
-
-            if status == 'aligned':
-                self._stop_docking()
-                self.machine.transition(State.PLACING)
-            elif status == 'lost':
-                self._stop_docking()
-                self.machine.fail(State.DOCKING, 'marker_lost')
-        except Exception:
-            # 예외 발생 시에도 반드시 정지 퍼블리시 (§4.2 안전 규칙)
-            self._stop_docking()
-            raise
-
-    def _stop_docking(self) -> None:
-        if self._dock_timer is not None:
-            self._dock_timer.cancel()
-            self._dock_timer = None
-        self._publish_cmd_vel(0.0, 0.0)
-
-    def _publish_cmd_vel(self, vx: float, wz: float) -> None:
-        max_lin = self.cfg['docking']['max_lin']
-        max_ang = self.cfg['docking']['max_ang']
-        vx = max(-max_lin, min(max_lin, vx))
-        wz = max(-max_ang, min(max_ang, wz))
-        msg = Twist()
-        msg.linear.x = vx
-        msg.angular.z = wz
-        self._cmd_vel_pub.publish(msg)
+    def _stop_cmd_vel(self) -> None:
+        # cmd_vel 퍼블리시는 항상 정지값 보장 (§4.2 안전 규칙)
+        self._cmd_vel_pub.publish(Twist())
 
     # ---------------- PLACING ----------------
 
     def _start_placing(self) -> None:
         cmd = self.cfg['placing']['cmd']
         timeout = self.cfg['placing']['timeout_sec']
+        # 출력을 읽는 소비자가 없으므로 PIPE 금지 — 64KB 차면 rollout이 팔 구동 중 블로킹됨
         self._placing_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         self._placing_deadline = time.monotonic() + timeout
+        self._placing_term_time: float | None = None
         self._placing_timer = self.create_timer(0.5, self._placing_poll)
 
     def _placing_poll(self) -> None:
@@ -212,12 +147,19 @@ class Orchestrator(Node):
         ret = proc.poll()
         if ret is None:
             if time.monotonic() > self._placing_deadline:
-                proc.kill()
-                self._stop_placing_timer()
-                self.machine.fail(State.PLACING, 'place_timeout')
+                if self._placing_term_time is None:
+                    # SIGKILL이면 rollout의 초기 자세 복귀가 막힘 — SIGTERM 후 복귀 유예
+                    proc.terminate()
+                    self._placing_term_time = time.monotonic()
+                elif time.monotonic() - self._placing_term_time > 10.0:
+                    proc.kill()
+                    self._stop_placing_timer()
+                    self.machine.fail(State.PLACING, 'place_timeout')
             return
         self._stop_placing_timer()
-        if ret == 0:
+        if self._placing_term_time is not None:
+            self.machine.fail(State.PLACING, 'place_timeout')
+        elif ret == 0:
             self.machine.transition(State.DONE)
         else:
             self.machine.fail(State.PLACING, 'place_failed')
@@ -296,12 +238,12 @@ class Orchestrator(Node):
 
     def request_stop(self):
         with self._lock:
-            self._stop_docking()
+            self._stop_cmd_vel()
             self.nav_client.cancel()
             if self._placing_proc is not None and self._placing_proc.poll() is None:
                 self._placing_proc.terminate()
             self._stop_placing_timer()
-            if self.machine.state in (State.NAVIGATING, State.DOCKING, State.PLACING):
+            if self.machine.state in (State.NAVIGATING, State.PLACING):
                 self.machine.fail(self.machine.state, 'stopped')
         return True, 'stopped'
 
@@ -339,34 +281,8 @@ class Orchestrator(Node):
         self._initialpose_pub.publish(msg)
         return True, 'initialpose_set'
 
-    def request_get_params(self) -> dict:
-        cfg = self.cfg['docking']
-        return {k: cfg[k] for k in _DOCKING_PARAM_KEYS if k in cfg}
-
-    def request_set_params(self, params: dict):
-        with self._lock:
-            if self.machine.state == State.DOCKING:
-                return False, 'docking_in_progress'
-            invalid_keys = [k for k in params if k not in _DOCKING_PARAM_KEYS]
-            if invalid_keys:
-                return False, f'invalid_keys:{",".join(invalid_keys)}'
-            invalid_values = [
-                k for k, v in params.items()
-                if isinstance(v, bool) or not isinstance(v, (int, float))
-            ]
-            if invalid_values:
-                return False, f'invalid_values:{",".join(invalid_values)}'
-            self.cfg['docking'].update(params)
-            # ArucoDocking은 __init__에서만 cfg를 읽으므로 동일 캘리브레이션으로 재생성
-            self.docking = ArucoDocking(
-                self.cfg['docking'],
-                camera_matrix=self.docking.camera_matrix,
-                dist_coeffs=self.docking.dist_coeffs,
-            )
-        return True, 'params_updated'
-
     def shutdown(self) -> None:
-        self._stop_docking()
+        self._stop_cmd_vel()
         if self._placing_proc is not None and self._placing_proc.poll() is None:
             self._placing_proc.terminate()
         self.hub.stop()

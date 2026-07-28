@@ -11,16 +11,13 @@
   #obstacleBadge { display: none; padding: 4px 10px; border-radius: 4px; background: #a00; }
   button { padding: 6px 14px; font-size: 14px; cursor: pointer; }
   button.active { background: #0a6; color: #fff; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: calc(100vh - 52px); padding: 4px; box-sizing: border-box; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: calc(100vh - 52px); padding: 4px; box-sizing: border-box; }
   .cell { background: #000; position: relative; overflow: hidden; border: 1px solid #333; }
   .cell img, .cell canvas { width: 100%; height: 100%; object-fit: contain; }
   .cell label { position: absolute; top: 2px; left: 4px; font-size: 11px; color: #aaa; background: rgba(0,0,0,.5); padding: 1px 4px; z-index: 1; }
-  #log { grid-column: span 2; overflow-y: auto; padding: 6px; font-size: 12px; white-space: pre-wrap; }
+  #log { overflow-y: auto; padding: 6px; font-size: 12px; white-space: pre-wrap; }
   #log div { border-bottom: 1px solid #222; padding: 2px 0; }
   #banner { display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 4px; font-size: 14px; z-index: 2; cursor: pointer; }
-  #paramsPanel { display: none; position: fixed; top: 60px; right: 10px; background: #1c1c1c; border: 1px solid #444; padding: 10px; z-index: 10; font-size: 12px; }
-  #paramsFields div { margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
-  #paramsFields input { width: 90px; }
 </style>
 </head>
 <body>
@@ -34,10 +31,8 @@
   <button id="btnReset">리셋</button>
   <button id="btnSetGoal">도착지 설정</button>
   <button id="btnSetStart">출발지 설정</button>
-  <button id="btnParams">파라미터</button>
 </header>
 <div class="grid">
-  <div class="cell"><label>탑뷰</label><img src="/stream/top"></div>
   <div class="cell"><label>핸드캠</label><img src="/stream/hand"></div>
   <div class="cell">
     <label>SLAM</label>
@@ -46,10 +41,6 @@
   </div>
   <div class="cell"><label>핑키</label><img src="/stream/pinky"></div>
   <div class="cell" id="log"></div>
-</div>
-<div id="paramsPanel">
-  <div id="paramsFields"></div>
-  <button id="btnApplyParams">적용</button>
 </div>
 <script>
 const badge = document.getElementById('badge');
@@ -88,45 +79,6 @@ function updateModeButtons() {
 }
 btnSetGoal.onclick = () => { clickMode = clickMode === 'goal' ? null : 'goal'; updateModeButtons(); };
 btnSetStart.onclick = () => { clickMode = clickMode === 'start' ? null : 'start'; updateModeButtons(); };
-
-const paramsPanel = document.getElementById('paramsPanel');
-const paramsFields = document.getElementById('paramsFields');
-document.getElementById('btnParams').onclick = async () => {
-  if (paramsPanel.style.display === 'block') {
-    paramsPanel.style.display = 'none';
-    return;
-  }
-  try {
-    const res = await fetch('/params');
-    const data = await res.json();
-    paramsFields.innerHTML = '';
-    Object.entries(data).forEach(([k, v]) => {
-      const row = document.createElement('div');
-      row.innerHTML = `<label>${k}</label><input type="number" step="any" data-key="${k}" value="${v}">`;
-      paramsFields.appendChild(row);
-    });
-    paramsPanel.style.display = 'block';
-  } catch (e) {
-    addLog(`/params 조회 실패: ${e}`);
-  }
-};
-document.getElementById('btnApplyParams').onclick = async () => {
-  const body = {};
-  paramsFields.querySelectorAll('input').forEach((inp) => {
-    body[inp.dataset.key] = parseFloat(inp.value);
-  });
-  try {
-    const res = await fetch('/params', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    addLog(`/params -> ${res.status} ${data.detail || ''}`);
-  } catch (e) {
-    addLog(`/params 적용 실패: ${e}`);
-  }
-};
 
 function addLog(text) {
   const d = document.createElement('div');
@@ -269,7 +221,7 @@ ws.onmessage = (ev) => {
   if (msg.type === 'state') {
     badge.textContent = msg.state;
     addLog(`상태 -> ${msg.state}${msg.reason ? ' (' + msg.reason + ')' : ''}`);
-    if (msg.state === 'DOCKING') {
+    if (msg.state === 'PLACING') {
       showBanner('목적지 도착', '#0a6');
     } else if (msg.state === 'DONE') {
       showBanner('작업 완료', '#0a6');

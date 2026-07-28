@@ -1,6 +1,6 @@
 """순수 파이썬 상태머신 (rclpy 의존 없음). orchestrator_node에서 사용.
 
-상태 흐름: READY -> NAVIGATING -> DOCKING -> PLACING -> DONE -> (reset) -> READY
+상태 흐름: READY -> NAVIGATING -> PLACING -> DONE -> (reset) -> READY
            실패 시 어느 단계에서든 -> FAILED(reason) -> retry(실패 단계로) 또는 reset(READY)
 """
 import json
@@ -13,14 +13,13 @@ from enum import Enum
 class State(str, Enum):
     READY = "READY"
     NAVIGATING = "NAVIGATING"
-    DOCKING = "DOCKING"
     PLACING = "PLACING"
     DONE = "DONE"
     FAILED = "FAILED"
 
 
 # READY 이후 정상 진행 순서 (retry 시 실패 단계로 되돌아가기 위한 순서 정보로도 사용)
-_SEQUENCE = [State.NAVIGATING, State.DOCKING, State.PLACING, State.DONE]
+_SEQUENCE = [State.NAVIGATING, State.PLACING, State.DONE]
 
 
 class StateMachine:
