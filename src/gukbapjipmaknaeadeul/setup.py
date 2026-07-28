@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'orchestrator = gukbapjipmaknaeadeul.orchestrator_node:main',
+            'teleop_racing = gukbapjipmaknaeadeul.teleop_racing:main',
         ],
     },
 )
