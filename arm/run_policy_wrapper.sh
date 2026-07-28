@@ -7,10 +7,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # TBD: 학습 완료 후 실측 확정 (환경변수로 덮어쓰기 가능)
-CHECKPOINT="${SHELFBOT_CKPT:-./checkpoints/act_shelfbot/pretrained_model}"
-PORT="${SHELFBOT_ARM_PORT:-/dev/ttyACM0}"   # TBD: soarm101 시리얼 포트
-TASK="${SHELFBOT_TASK:-진열}"
-DURATION="${SHELFBOT_DURATION:-60}"          # booth.yaml placing.timeout_sec(90)보다 짧아야 kill 경로를 안 탐
+CHECKPOINT="${GUKBAPJIPMAKNAEADEUL_CKPT:-./checkpoints/act_gukbapjipmaknaeadeul/pretrained_model}"
+PORT="${GUKBAPJIPMAKNAEADEUL_ARM_PORT:-/dev/ttyACM0}"   # TBD: soarm101 시리얼 포트
+TASK="${GUKBAPJIPMAKNAEADEUL_TASK:-진열}"
+DURATION="${GUKBAPJIPMAKNAEADEUL_DURATION:-60}"          # booth.yaml placing.timeout_sec(90)보다 짧아야 kill 경로를 안 탐
 
 # 캠은 장치를 직접 열지 않는다(frame hub와 USB 경합, 구현계획서 §6.6/§7.2)
 # — orchestrator 웹 서버의 MJPEG 스트림을 mjpeg_camera.py의 'mjpeg' 타입으로 공급.

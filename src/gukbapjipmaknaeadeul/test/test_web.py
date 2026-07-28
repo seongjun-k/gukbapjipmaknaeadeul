@@ -2,7 +2,7 @@
 import numpy as np
 from fastapi.testclient import TestClient
 
-from shelfbot.web_server import create_app
+from gukbapjipmaknaeadeul.web_server import create_app
 
 
 class FakeMachine:
@@ -102,7 +102,7 @@ def test_stream_multipart_chunk():
     # 무한 MJPEG 스트림은 TestClient로 소비하면 종료 시 행 걸림(starlette 0.27 한계)
     # → 제너레이터를 직접 1청크만 검증
     import asyncio
-    from shelfbot.web_server import _mjpeg_generator
+    from gukbapjipmaknaeadeul.web_server import _mjpeg_generator
 
     chunk = asyncio.run(_mjpeg_generator(FakeHub(), "hand").__anext__())
     assert chunk.startswith(b"--frame\r\n")

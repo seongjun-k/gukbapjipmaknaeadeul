@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from shelfbot.machine import State, StateMachine
+from gukbapjipmaknaeadeul.machine import State, StateMachine
 
 
 @pytest.fixture

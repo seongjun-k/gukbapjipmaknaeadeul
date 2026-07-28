@@ -1,4 +1,4 @@
-"""ShelfBot orchestrator: rclpy 노드 + FastAPI 웹서버를 한 프로세스에서 실행.
+"""gukbapjipmaknaeadeul orchestrator: rclpy 노드 + FastAPI 웹서버를 한 프로세스에서 실행.
 
 스레드 구성: rclpy spin(메인 스레드) + uvicorn(데몬 스레드).
 """
@@ -21,16 +21,16 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
-from shelfbot.frame_hub import FrameHub
-from shelfbot.machine import State, StateMachine
-from shelfbot.nav_client import NavClient
-from shelfbot.web_server import create_app
+from gukbapjipmaknaeadeul.frame_hub import FrameHub
+from gukbapjipmaknaeadeul.machine import State, StateMachine
+from gukbapjipmaknaeadeul.nav_client import NavClient
+from gukbapjipmaknaeadeul.web_server import create_app
 
 
 def _load_yaml(package_share_relative: str, filename: str) -> dict:
     """ament_index share 디렉토리에서 로드, 실패 시 소스 트리 상대 경로 폴백."""
     try:
-        share_dir = get_package_share_directory('shelfbot')
+        share_dir = get_package_share_directory('gukbapjipmaknaeadeul')
         path = os.path.join(share_dir, package_share_relative, filename)
         if os.path.exists(path):
             with open(path) as f:

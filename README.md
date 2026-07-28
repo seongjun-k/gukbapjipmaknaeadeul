@@ -1,4 +1,4 @@
-# ShelfBot
+# gukbapjipmaknaeadeul
 
 자율주행(pinky pro) + 모방학습(soarm101, ACT) 기반 무인 상품 진열 시스템.
 웹 UI에서 ▶시작 → pinky가 Nav2로 진열대 앞 주행 → 아루코 마커 정밀 도킹 → soarm101이 ACT 정책으로 상품을 지정 칸에 진열.
@@ -9,8 +9,8 @@
 ## 구조
 
 ```
-src/shelfbot/            # ROS2 ament_python 패키지 (시스템 파이썬, rclpy)
-├── shelfbot/
+src/gukbapjipmaknaeadeul/            # ROS2 ament_python 패키지 (시스템 파이썬, rclpy)
+├── gukbapjipmaknaeadeul/
 │   ├── orchestrator_node.py  # 상태머신 노드 + uvicorn 스레드 (단일 프로세스)
 │   ├── machine.py            # 순수 파이썬 상태머신 (READY→NAVIGATING→DOCKING→PLACING→DONE/FAILED)
 │   ├── nav_client.py         # Nav2 NavigateToPose 래퍼
@@ -34,7 +34,7 @@ arm/                     # LeRobot (별도 venv, torch — 프로세스 경계�
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
-pytest src/shelfbot/test/ -q
+pytest src/gukbapjipmaknaeadeul/test/ -q
 ```
 
 의존: `python3-fastapi`, `python3-uvicorn`, `python3-httpx`(테스트), OpenCV(ros-jazzy 기본).
@@ -42,7 +42,7 @@ pytest src/shelfbot/test/ -q
 ## 실행
 
 ```bash
-ros2 launch shelfbot shelfbot.launch.py   # orchestrator + 웹 (기본 :8000)
+ros2 launch gukbapjipmaknaeadeul shelfbot.launch.py   # orchestrator + 웹 (기본 :8000)
 ```
 
 실기 구동 전 필수: 부스 세팅(구현계획서 §3) 후 `booth.yaml`의 goal_pose·dock target_pose·캘리브 파일·pinky 토픽명, `cameras.yaml` 장치 경로 실측 기입.

@@ -13,8 +13,8 @@ RUN_NAME="$2"
 
 # TODO: 실제 서버 정보로 교체
 REMOTE_HOST="TBD"          # 예: user@5090-server
-REMOTE_DATA_DIR="TBD"      # 예: ~/shelfbot_data
-REMOTE_CKPT_DIR="TBD"      # 예: ~/shelfbot_ckpt
+REMOTE_DATA_DIR="TBD"      # 예: ~/gukbapjipmaknaeadeul_data
+REMOTE_CKPT_DIR="TBD"      # 예: ~/gukbapjipmaknaeadeul_ckpt
 LOCAL_CKPT_DIR="${LOCAL_CKPT_DIR:-./checkpoints/${RUN_NAME}}"
 
 echo "[train_remote] torch/cuda 환경 확인 중..."

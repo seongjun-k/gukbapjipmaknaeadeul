@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>shelfbot</name>
+  <name>gukbapjipmaknaeadeul</name>
   <version>0.1.0</version>
   <description>자율주행(pinky) + 모방학습(soarm101) 무인 상품 진열 시스템 — orchestrator, 아루코 도킹, 웹 UI</description>
   <maintainer email="deeptree.test1@gmail.com">이기문</maintainer>

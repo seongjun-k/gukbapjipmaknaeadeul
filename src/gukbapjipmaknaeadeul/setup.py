@@ -2,7 +2,7 @@ from glob import glob
 
 from setuptools import find_packages, setup
 
-package_name = 'shelfbot'
+package_name = 'gukbapjipmaknaeadeul'
 
 setup(
     name=package_name,
@@ -23,7 +23,7 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'orchestrator = shelfbot.orchestrator_node:main',
+            'orchestrator = gukbapjipmaknaeadeul.orchestrator_node:main',
         ],
     },
 )

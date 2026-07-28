@@ -13,6 +13,6 @@ topics:
   plan: /plan
   pinky_camera: ""        # TBD
   initialpose: /initialpose
-  status_text: /shelfbot/status_text
+  status_text: /gukbapjipmaknaeadeul/status_text
   scan: /scan
 web: {host: 0.0.0.0, port: 8000}

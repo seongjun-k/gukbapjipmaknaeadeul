@@ -32,7 +32,7 @@ def _find_index_html() -> str | None:
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        p = os.path.join(get_package_share_directory("shelfbot"), "web", "static", "index.html")
+        p = os.path.join(get_package_share_directory("gukbapjipmaknaeadeul"), "web", "static", "index.html")
         if os.path.isfile(p):
             return p
     except Exception:
