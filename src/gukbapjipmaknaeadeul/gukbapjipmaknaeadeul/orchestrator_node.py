@@ -74,7 +74,7 @@ class Orchestrator(Node):
         except Exception:
             self.cameras_cfg = {}
 
-        self.machine = StateMachine(log_dir=os.path.expanduser('~/shelfbot/logs'))
+        self.machine = StateMachine(log_dir=os.path.expanduser('~/gukbapjipmaknaeadeul/logs'))
         self.machine.add_listener(self._on_transition)
 
         topics = self.cfg['topics']

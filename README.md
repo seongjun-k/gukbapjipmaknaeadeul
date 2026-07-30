@@ -5,7 +5,7 @@
 Nav2(map_server·AMCL·planner)는 노트북에서 실행하고, 핑키 온보드는 pinky_bringup(모터·라이다·odom/tf)만 돈다.
 
 - 설계 SSoT: [docs/구현계획서.md](docs/구현계획서.md) / 기획서: docs/ShelfBot_프로젝트_기획서.docx
-- 환경: Ubuntu 24.04, ROS2 Jazzy, Python 3.12 / 팀: 이기문, 강성준
+- 환경: Ubuntu 24.04, ROS2 Jazzy, Python 3.12 / 팀: 이기문, 강성준, 이성관, 함정현, 석지훈
 
 ## 구조
 
@@ -35,7 +35,7 @@ tools/pinky_cam_stream.py # 핑키(라즈베리파이)에서 실행 — CSI 캠 
 ## 빌드·테스트
 
 ```bash
-# 호스트, 워크스페이스 루트(~/shelfbot)에서
+# 호스트, 워크스페이스 루트(~/gukbapjipmaknaeadeul)에서
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash

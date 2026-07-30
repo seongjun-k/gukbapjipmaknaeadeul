@@ -2,7 +2,7 @@ goal_pose: {x: 0.0, y: 0.0, yaw: 0.0}        # TBD: 부스 세팅 후 실측
 nav: {timeout_sec: 120}
 placing:
   # 래퍼 직접 실행 필수 — bash -lc 경유 시 terminate/kill이 바깥 bash만 죽여 lerobot 프로세스가 고아가 됨
-  cmd: ["/home/ksj/shelfbot/arm/run_policy_wrapper.sh"]
+  cmd: ["/home/ksj/gukbapjipmaknaeadeul/arm/run_policy_wrapper.sh"]
   timeout_sec: 90
 slots: {sneakers: 1, kitkat: 2, freetime: 3}
 topics:
